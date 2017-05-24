@@ -54,8 +54,8 @@ func (self *StateDB) RawDump() Dump {
 
 		obj := newObject(nil, common.BytesToAddress(addr), data, nil)
 		account := DumpAccount{
-			Balance:  data.Balance.String(),
-			Nonce:    data.Nonce,
+			Balance:  self.GetBalance(common.BytesToAddress(addr)).String(),
+			Nonce:    self.GetNonce(common.BytesToAddress(addr)), // it's a quick fix
 			Root:     common.Bytes2Hex(data.Root[:]),
 			CodeHash: common.Bytes2Hex(data.CodeHash),
 			Code:     common.Bytes2Hex(obj.Code(self.db)),
@@ -63,7 +63,8 @@ func (self *StateDB) RawDump() Dump {
 		}
 		storageIt := obj.getTrie(self.db).Iterator()
 		for storageIt.Next() {
-			account.Storage[common.Bytes2Hex(self.trie.GetKey(storageIt.Key))] = common.Bytes2Hex(storageIt.Value)
+			// it's a quick fix
+			account.Storage[common.Bytes2Hex(self.trie.GetKey(storageIt.Key))] = common.Bytes2Hex(self.GetState(common.BytesToAddress(addr),common.BytesToHash(self.trie.GetKey(storageIt.Key))).Bytes())
 		}
 		dump.Accounts[common.Bytes2Hex(addr)] = account
 	}

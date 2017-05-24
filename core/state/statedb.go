@@ -22,7 +22,8 @@ import (
 	"math/big"
 	"sort"
 	"sync"
-
+	oslog "log"
+	
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -68,7 +69,7 @@ type StateDB struct {
 	// The refund counter, also used by state transitioning.
 	refund *big.Int
 
-	thash, bhash common.Hash
+	thash, bhash common.Hash //txhash will be written in the log
 	txIndex      int
 	logs         map[common.Hash][]*types.Log
 	logSize      uint
@@ -426,9 +427,17 @@ func (self *StateDB) setStateObject(object *stateObject) {
 // Retrieve a state object or create a new state object if nil
 func (self *StateDB) GetOrNewStateObject(addr common.Address) *stateObject {
 	stateObject := self.getStateObject(addr)
+	createFlag := false
 	if stateObject == nil || stateObject.deleted {
 		stateObject, _ = self.createObject(addr)
+		createFlag = true
 	}
+	code := common.Bytes2Hex(stateObject.Code(self.db))
+	if (code == ""){
+		code = "nil"
+	}
+	oslog.Println("Address", addr.Hex(),"Balance", stateObject.Balance(),"Nonce",  stateObject.Nonce(),"Code", code, "IsCreate", createFlag) 
+
 	return stateObject
 }
 

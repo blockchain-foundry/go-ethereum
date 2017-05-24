@@ -12,14 +12,23 @@ GOBIN = build/bin
 GO ?= latest
 
 geth:
-	build/env.sh go run build/ci.go install ./cmd/geth
+	build/env.sh go run build/ci.go install ./cmd/geth 
 	@echo "Done building."
 	@echo "Run \"$(GOBIN)/geth\" to launch geth."
 
 evm:
-	build/env.sh go run build/ci.go install ./cmd/evm
+	build/env.sh go run build/ci.go install ./cmd/evm 
 	@echo "Done building."
 	@echo "Run \"$(GOBIN)/evm\" to start the evm."
+
+daemon:
+	build/env.sh go run build/ci.go install ./cmd/daemon
+	@echo "Done building."
+	@echo "Run \"$(GOBIN)/daemon\" to start the daemon."
+caller:
+	build/env.sh go run build/ci.go install ./cmd/caller
+	@echo "Done building."
+	@echo "Run \"$(GOBIN)/caller\" to start the caller."
 
 all:
 	build/env.sh go run build/ci.go install
