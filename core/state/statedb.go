@@ -668,3 +668,24 @@ func (s *StateDB) CommitTo(dbw trie.DatabaseWriter, deleteEmptyObjects bool) (ro
 	}
 	return root, err
 }
+
+//Adding a hook on every change of the balance
+func (self *StateDB) JournalRecord() map[*common.Address]*big.Int{
+	var Record = make(map[*common.Address]*big.Int)
+	for _, ch := range self.journal {
+		// We only care when there's a balance change or object created.
+		switch n := ch.(type) {
+		case balanceChange:
+			_, ok := Record[n.account]
+			if !ok {
+				Record[n.account] = n.prev
+			}
+		case suicideChange:
+			_, ok := Record[n.account]
+			if !ok {
+				Record[n.account] = n.prevbalance
+			}
+		}
+	}
+	return Record
+}

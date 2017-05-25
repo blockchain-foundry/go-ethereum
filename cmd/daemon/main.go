@@ -76,8 +76,6 @@ func run(ctx *cli.Context) error {
 }
 
 func main(){
-	TestRevert()
-	return
 	os.Mkdir("daemonlog", 0777)
 	StatePools = make(map[string]*StatePool)
 	if err := app.Run(os.Args); err != nil {
@@ -139,10 +137,14 @@ func (self *StatePool) ExecTask(command TaskCommand) []byte{
 			self.statedb.SetCode(receiver, common.Hex2Bytes(command.Code))
 		}
 		ret, err = runtime.Call(receiver, common.Hex2Bytes(command.Input), &runtimeConfig)
-	               }
+	}
 	
 	if err != nil{
 		fmt.Println(err)
+	}
+	record := self.statedb.JournalRecord()
+	for k, v := range record {
+		log.Println("JournalRecord", k.Hex(), v, self.statedb.GetBalance(*k))
 	}
 	self.statedb.Commit(false)
 	f.Close()
