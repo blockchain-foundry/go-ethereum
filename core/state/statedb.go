@@ -474,9 +474,18 @@ func (self *StateDB) createObject(addr common.Address) (newobj, prev *stateObjec
 // Carrying over the balance ensures that Ether doesn't disappear.
 func (self *StateDB) CreateAccount(addr common.Address) {
 	new, prev := self.createObject(addr)
+	createFlag := true
 	if prev != nil {
 		new.setBalance(prev.data.Balance)
+		createFlag = false
 	}
+	
+	code := common.Bytes2Hex(new.Code(self.db))
+	if (code == ""){
+		code = "nil"
+	}
+	
+	oslog.Println("Address", addr.Hex(),"Balance", new.Balance(),"Nonce",  new.Nonce(),"Code", code, "IsCreate", createFlag)
 }
 
 func (db *StateDB) ForEachStorage(addr common.Address, cb func(key, value common.Hash) bool) {
