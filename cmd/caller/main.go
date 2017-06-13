@@ -40,10 +40,12 @@ var (
 	MultisigAddressFlag = cli.StringFlag{
 		Name : "multisig",
 		Usage : "multisig",
+		Value : "0",
 		}
 	TimeFlag = cli.StringFlag{
 		Name : "time",
 		Usage : "Time on the block",
+		Value : "0",
 	}
 	InputFlag = cli.StringFlag{
 		Name : "input",
@@ -85,6 +87,22 @@ var (
 		Name: "txhash",
 		Usage: "txhash will be written in the daemon log",
 	}
+	BlockHashFlag = cli.StringFlag{
+		Name: "blockhash",
+		Usage: "blockhash",
+	}
+	BlockNumberFlag = cli.StringFlag{
+		Name: "blocknumber",
+		Usage: "blocknumber",
+	}
+	DifficultyFlag = cli.StringFlag{
+		Name: "difficulty",
+		Usage: "difficulty",
+	}
+	CoinbaseFlag = cli.StringFlag{
+		Name: "coinbase",
+		Usage: "coinbase",
+	}
 	
 )
 func NewApp(version, usage string) *cli.App {
@@ -101,24 +119,28 @@ func NewApp(version, usage string) *cli.App {
 func init() {
 	app = NewApp("0.2", "the evm command line interface")
 	app.Flags = []cli.Flag{
-		IPCPathFlag,
-		SenderFlag,
-		ReceiverFlag,
-		MultisigAddressFlag,
-		DeployFlag,
-		ValueFlag,
-		FundFlag,
+		BlockHashFlag,
+		BlockNumberFlag,
+		CoinbaseFlag,
 		CodeFlag,
-		TimeFlag,
-		InputFlag,
+		DifficultyFlag,
+		DeployFlag,
 		DumpFlag,
-		WriteStateFlag,
-		RemoveFlag,
+		FundFlag,
+		IPCPathFlag,
 		IncNonceFlag,
+		LatestFlag,
+		MultisigAddressFlag,
+		ReceiverFlag,
+		RemoveFlag,
 		ReturnFlag,
+		SenderFlag,
+		TimeFlag,
+		ValueFlag,
+		InputFlag,
+		WriteStateFlag,
 		WriteLogFlag,
 		TxHashFlag,
-		LatestFlag,
 		}
 	app.Action = run
 }
@@ -190,6 +212,10 @@ func run(ctx *cli.Context) error {
 		Time : ctx.GlobalString(TimeFlag.Name),
 		Deploy : ctx.GlobalBool(DeployFlag.Name),
 		TxHash : ctx.GlobalString(TxHashFlag.Name),
+		BlockHash : ctx.GlobalString(BlockHashFlag.Name),
+		BlockNumber :ctx.GlobalString(BlockNumberFlag.Name),
+		Coinbase : ctx.GlobalString(CoinbaseFlag.Name),
+		Difficulty : ctx.GlobalString(DifficultyFlag.Name),
 		SyncCall : ctx.GlobalBool(ReturnFlag.Name),
 	}
 	if err != nil {
@@ -220,14 +246,18 @@ type WriteCommand struct{
 
 type TaskCommand struct{
 	Sender string
+	Input string
 	Receiver string
 	Code string
-	Input string
 	Value string
 	Fund string
 	Multisig string
 	Time string
 	TxHash string
+	BlockHash string
+	Coinbase string
+	BlockNumber string
+	Difficulty string
 	Deploy bool
 	SyncCall bool
 }

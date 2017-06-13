@@ -35,6 +35,9 @@ var (
 	wg sync.WaitGroup
 )
 
+const DatabasePath = "daemon_db/"
+const DaemonLogPath = "daemon_log/"
+
 func NewApp(version, usage string) *cli.App {
 	app := cli.NewApp()
 	app.Name = filepath.Base(os.Args[0])
@@ -76,7 +79,7 @@ func run(ctx *cli.Context) error {
 }
 
 func main(){
-	os.Mkdir("daemonlog", 0777)
+	os.Mkdir(DaemonLogPath, 0777)
 	StatePools = make(map[string]*StatePool)
 	if err := app.Run(os.Args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -91,9 +94,9 @@ func (self *StatePool) ExecTask(command TaskCommand) []byte{
 	txHash := common.HexToHash(command.TxHash)
 	logPath := ""
 	if command.TxHash != "" {
-		logPath = "daemonlog/" + txHash.String()
+		logPath = DaemonLogPath + txHash.String()
 	}else {
-		logPath = "daemonlog/default"
+		logPath = DaemonLogPath + "default"
 	}
 	f, e := os.OpenFile(logPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	
@@ -111,7 +114,7 @@ func (self *StatePool) ExecTask(command TaskCommand) []byte{
 		sender = common.HexToAddress(command.Sender)
 		receiver = common.HexToAddress(command.Receiver)
 	)
-	self.statedb.StartRecord(txHash, common.Hash{}, 0)
+	self.statedb.StartRecord(txHash, common.HexToHash(command.BlockHash), 0)
 	self.statedb.AddBalance(sender, StringToBig(command.Fund))
 	runtimeConfig := runtime.Config{
 		Origin:   sender,
@@ -120,6 +123,9 @@ func (self *StatePool) ExecTask(command TaskCommand) []byte{
 		GasPrice: big.NewInt(0),
 		Value:    StringToBig(command.Value),
 		Time: StringToBig(command.Time),
+		Difficulty: StringToBig(command.Difficulty),
+		Coinbase: common.HexToAddress(command.Coinbase),
+		BlockNumber: StringToBig(command.BlockNumber),
 		EVMConfig: vm.Config{
 			Tracer:             logger,
 			Debug:              false,
@@ -176,7 +182,7 @@ func (t* VmDaemon) DeployContract(command TaskCommand, result *string) error{
 	var states *StatePool
 	states, ok := StatePools[command.Multisig]
 	if !ok {
-		db, err := ethdb.NewLDBDatabase("daemon_db/" + command.Multisig, 1024, 0)
+		db, err := ethdb.NewLDBDatabase(DatabasePath + command.Multisig, 1024, 0)
 		if err != nil {
 			fmt.Println(err)
 		}
@@ -231,6 +237,7 @@ func (t *VmDaemon) RemoveStates(Multisig string, result *string) error{
 	if ok {
 		states.mutex.Lock()
 		delete(StatePools, Multisig)
+		os.RemoveAll(DatabasePath + Multisig)
 		states.mutex.Unlock()
 		*result = "remove " + Multisig
 		return nil
@@ -316,6 +323,10 @@ type TaskCommand struct{
 	Multisig string
 	Time string
 	TxHash string
+	BlockHash string
+	Coinbase string
+	BlockNumber string
+	Difficulty string
 	Deploy bool
 	SyncCall bool
 }
