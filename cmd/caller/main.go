@@ -66,10 +66,14 @@ var (
 	RemoveFlag = cli.BoolFlag{
 		Name : "remove",
 		Usage : "Remove the multisig's state",
-	}
+	}	
 	IncNonceFlag = cli.BoolFlag{
 		Name : "inc",
 		Usage : "Inc the receiver's nonce",
+	}
+	CheckTxFlag = cli.BoolFlag{
+		Name : "check",
+		Usage : "check the tx_hash",
 	}
 	ReturnFlag = cli.BoolFlag{
 		Name : "return",
@@ -141,6 +145,7 @@ func init() {
 		WriteStateFlag,
 		WriteLogFlag,
 		TxHashFlag,
+		CheckTxFlag,
 		}
 	app.Action = run
 }
@@ -158,6 +163,15 @@ func run(ctx *cli.Context) error {
 	client, err := rpc.DialHTTP("unix", endpoint)
 	if ctx.GlobalBool(LatestFlag.Name) {
 		err = client.Call("VmDaemon.GetLatestTx", ctx.GlobalString(MultisigAddressFlag.Name), &reply)
+		fmt.Println(reply)
+		return nil
+	}
+	if ctx.GlobalBool(CheckTxFlag.Name) {
+		command := CheckTxCommand{
+			Multisig : ctx.GlobalString(MultisigAddressFlag.Name),
+			TxHash : ctx.GlobalString(TxHashFlag.Name),
+		}
+		err = client.Call("VmDaemon.CheckTx", command, &reply)
 		fmt.Println(reply)
 		return nil
 	}
@@ -265,6 +279,11 @@ type TaskCommand struct{
 type NonceCommand struct{
 	Multisig string
 	Receiver string
+}
+
+type CheckTxCommand struct{
+	Multisig string
+	TxHash string
 }
 
 type QueryRequest struct{

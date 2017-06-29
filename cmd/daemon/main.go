@@ -154,6 +154,7 @@ func (self *StatePool) ExecTask(command TaskCommand) []byte{
 	}
 	self.statedb.Commit(false)
 	f.Close()
+	self.txTable[txHash] = true
 	self.mutex.Unlock()
 	return ret
 }
@@ -189,6 +190,7 @@ func (t* VmDaemon) DeployContract(command TaskCommand, result *string) error{
 		statedb, _ := state.New(common.Hash{}, db)
 		states = &StatePool{
 			statedb: statedb,
+			txTable: make(map[common.Hash]bool),
 			}
 		StatePools[command.Multisig] = states
 	}
@@ -262,6 +264,21 @@ func (t *VmDaemon) IncNonce(command NonceCommand, result *string) error{
 	return nil
 }
 
+func (t *VmDaemon) CheckTx(request CheckTxCommand, result *string) error{
+	var states *StatePool
+	states, ok := StatePools[request.Multisig]
+	if !ok {
+		return nil
+	}
+	txHash := common.HexToHash(request.TxHash)
+	if states.txTable[txHash] {
+		*result = "true"
+	} else{
+		*result = "false"
+	}
+	return nil
+} 
+
 func (t *VmDaemon) QueryStates(request QueryRequest, result *string) error{
 	var states *StatePool
 	states, ok := StatePools[request.Multisig]
@@ -291,6 +308,12 @@ type NonceCommand struct{
 	Multisig string
 	Receiver string
 }
+
+type CheckTxCommand struct{
+	Multisig string
+	TxHash string
+}
+
 type WriteCommand struct{
 	Multisig string
 	Path string
@@ -309,6 +332,7 @@ type LogCommand struct{
 type StatePool struct{
 	statedb *state.StateDB
 	latestHash common.Hash
+	txTable map[common.Hash]bool
 	mutex sync.Mutex
 	busy bool
 }
