@@ -4,13 +4,10 @@ import(
 	"net/rpc"
 	"fmt"
 	//"net/http"
-	"io/ioutil"
-	"github.com/ethereum/go-ethereum/core/state"
 	"log"
 	"gopkg.in/urfave/cli.v1"
 	"path/filepath"
 	"os"
-	"encoding/json"
 )
 type Daem int
 
@@ -43,10 +40,12 @@ var (
 	MultisigAddressFlag = cli.StringFlag{
 		Name : "multisig",
 		Usage : "multisig",
+		Value : "0",
 		}
 	TimeFlag = cli.StringFlag{
 		Name : "time",
 		Usage : "Time on the block",
+		Value : "0",
 	}
 	InputFlag = cli.StringFlag{
 		Name : "input",
@@ -67,18 +66,46 @@ var (
 	RemoveFlag = cli.BoolFlag{
 		Name : "remove",
 		Usage : "Remove the multisig's state",
-	}
+	}	
 	IncNonceFlag = cli.BoolFlag{
 		Name : "inc",
 		Usage : "Inc the receiver's nonce",
+	}
+	CheckTxFlag = cli.BoolFlag{
+		Name : "check",
+		Usage : "check the tx_hash",
 	}
 	ReturnFlag = cli.BoolFlag{
 		Name : "return",
 		Usage : "will be an synchronous call",
 	}
+	LatestFlag = cli.BoolFlag{
+		Name : "latest",
+		Usage : "get the latest TxHash that daemon got",
+	}
 	WriteLogFlag = cli.StringFlag{
 		Name:  "writelog",
 		Usage: "wrtie logs to a file",
+	}
+	TxHashFlag = cli.StringFlag{
+		Name: "txhash",
+		Usage: "txhash will be written in the daemon log",
+	}
+	BlockHashFlag = cli.StringFlag{
+		Name: "blockhash",
+		Usage: "blockhash",
+	}
+	BlockNumberFlag = cli.StringFlag{
+		Name: "blocknumber",
+		Usage: "blocknumber",
+	}
+	DifficultyFlag = cli.StringFlag{
+		Name: "difficulty",
+		Usage: "difficulty",
+	}
+	CoinbaseFlag = cli.StringFlag{
+		Name: "coinbase",
+		Usage: "coinbase",
 	}
 	
 )
@@ -96,22 +123,29 @@ func NewApp(version, usage string) *cli.App {
 func init() {
 	app = NewApp("0.2", "the evm command line interface")
 	app.Flags = []cli.Flag{
-		IPCPathFlag,
-		SenderFlag,
-		ReceiverFlag,
-		MultisigAddressFlag,
-		DeployFlag,
-		ValueFlag,
-		FundFlag,
+		BlockHashFlag,
+		BlockNumberFlag,
+		CoinbaseFlag,
 		CodeFlag,
-		TimeFlag,
-		InputFlag,
+		DifficultyFlag,
+		DeployFlag,
 		DumpFlag,
-		WriteStateFlag,
-		RemoveFlag,
+		FundFlag,
+		IPCPathFlag,
 		IncNonceFlag,
+		LatestFlag,
+		MultisigAddressFlag,
+		ReceiverFlag,
+		RemoveFlag,
 		ReturnFlag,
+		SenderFlag,
+		TimeFlag,
+		ValueFlag,
+		InputFlag,
+		WriteStateFlag,
 		WriteLogFlag,
+		TxHashFlag,
+		CheckTxFlag,
 		}
 	app.Action = run
 }
@@ -127,6 +161,20 @@ func run(ctx *cli.Context) error {
 		}
 
 	client, err := rpc.DialHTTP("unix", endpoint)
+	if ctx.GlobalBool(LatestFlag.Name) {
+		err = client.Call("VmDaemon.GetLatestTx", ctx.GlobalString(MultisigAddressFlag.Name), &reply)
+		fmt.Println(reply)
+		return nil
+	}
+	if ctx.GlobalBool(CheckTxFlag.Name) {
+		command := CheckTxCommand{
+			Multisig : ctx.GlobalString(MultisigAddressFlag.Name),
+			TxHash : ctx.GlobalString(TxHashFlag.Name),
+		}
+		err = client.Call("VmDaemon.CheckTx", command, &reply)
+		fmt.Println(reply)
+		return nil
+	}
 	if ctx.GlobalBool(RemoveFlag.Name) {
 		err = client.Call("VmDaemon.RemoveStates", ctx.GlobalString(MultisigAddressFlag.Name), &reply)
 		fmt.Println(reply)
@@ -159,15 +207,8 @@ func run(ctx *cli.Context) error {
 		return nil
 	}
 	if ctx.GlobalString(WriteStateFlag.Name) != "" {
-		f, err := ioutil.ReadFile(ctx.GlobalString(WriteStateFlag.Name))
-		if err != nil {
-			fmt.Println(err)
-			return err
-		}
-		var jjson state.World
-		json.Unmarshal(f,&jjson)
 		writerequest := WriteCommand{
-			World : jjson,
+			Path : ctx.GlobalString(WriteStateFlag.Name),
 			Multisig : ctx.GlobalString(MultisigAddressFlag.Name),
 		}
 		err = client.Call("VmDaemon.WriteStates", writerequest, &reply)
@@ -184,7 +225,11 @@ func run(ctx *cli.Context) error {
 		Input : ctx.GlobalString(InputFlag.Name),
 		Time : ctx.GlobalString(TimeFlag.Name),
 		Deploy : ctx.GlobalBool(DeployFlag.Name),
-		
+		TxHash : ctx.GlobalString(TxHashFlag.Name),
+		BlockHash : ctx.GlobalString(BlockHashFlag.Name),
+		BlockNumber :ctx.GlobalString(BlockNumberFlag.Name),
+		Coinbase : ctx.GlobalString(CoinbaseFlag.Name),
+		Difficulty : ctx.GlobalString(DifficultyFlag.Name),
 		SyncCall : ctx.GlobalBool(ReturnFlag.Name),
 	}
 	if err != nil {
@@ -210,18 +255,23 @@ func main(){
 
 type WriteCommand struct{
 	Multisig string
-	World state.World
+	Path string
 }
 
 type TaskCommand struct{
 	Sender string
+	Input string
 	Receiver string
 	Code string
-	Input string
 	Value string
 	Fund string
 	Multisig string
 	Time string
+	TxHash string
+	BlockHash string
+	Coinbase string
+	BlockNumber string
+	Difficulty string
 	Deploy bool
 	SyncCall bool
 }
@@ -229,6 +279,11 @@ type TaskCommand struct{
 type NonceCommand struct{
 	Multisig string
 	Receiver string
+}
+
+type CheckTxCommand struct{
+	Multisig string
+	TxHash string
 }
 
 type QueryRequest struct{

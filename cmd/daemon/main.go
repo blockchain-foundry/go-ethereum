@@ -4,23 +4,23 @@ import(
 	"errors"
 	"fmt"
 	"math/big"
-	//"io/ioutil"
-	//"time"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/state"
-	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/ethdb"
-	//"github.com/ethereum/go-ethereum/logger/glog"
-	"strconv"
+	"log"
 	"net/rpc"
 	"os"
-	//"encoding/json"
+	"io/ioutil"
+	"encoding/json"
 	"net/http"
 	"net"
 	"sync"
 	"gopkg.in/urfave/cli.v1"
 	"path/filepath"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/core/vm/runtime"
+	"github.com/ethereum/go-ethereum/ethdb"
+	//"github.com/ethereum/go-ethereum/logger/glog"
 )
 
 var (
@@ -34,6 +34,9 @@ var (
 	StatePools map[string]*StatePool
 	wg sync.WaitGroup
 )
+
+const DatabasePath = "daemon_db/"
+const DaemonLogPath = "daemon_log/"
 
 func NewApp(version, usage string) *cli.App {
 	app := cli.NewApp()
@@ -76,71 +79,102 @@ func run(ctx *cli.Context) error {
 }
 
 func main(){
+	os.Mkdir(DaemonLogPath, 0777)
 	StatePools = make(map[string]*StatePool)
 	if err := app.Run(os.Args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 		}
+	
 }
 
 type VmDaemon int
 
 func (self *StatePool) ExecTask(command TaskCommand) []byte{
-	
-	var sender, receiver vm.ContractRef
-
-	senderadr := common.HexToAddress(command.Sender)
-	if self.vmenv.state.HasAccount(senderadr) {
-		sender = self.statedb.GetAccount(senderadr)
-		} else {
-			sender = self.statedb.CreateAccount(senderadr)
-		}
-
-	receiveradr := common.HexToAddress(command.Receiver)
-	if self.vmenv.state.HasAccount(receiveradr) {
-		receiver = self.statedb.GetAccount(receiveradr)
-		} else {
-			receiver = self.statedb.CreateAccount(receiveradr)
-			}
-	if command.Code != "" && receiver.GetCode() == nil{
-		receiver.SetCode(common.Hex2Bytes(command.Code))
+	txHash := common.HexToHash(command.TxHash)
+	logPath := ""
+	if command.TxHash != "" {
+		logPath = DaemonLogPath + txHash.String()
+	}else {
+		logPath = DaemonLogPath + "default"
 	}
-	fundbalance := common.JsonToBalance([]byte(command.Fund))
-	for k, v := range fundbalance{
-		self.vmenv.state.AddBalance(k, sender.Address(), v)
-		}
-	self.vmenv.SetTime(common.Big(command.Time))
-	self.vmenv.state.Commit()
-	ret, err := self.vmenv.Call(
-		sender,
-		receiver.Address(),
-		common.Hex2Bytes(command.Input),
-		common.Big("10000000000"),
-		common.Big("0"),
-		common.JsonToBalance([]byte(command.Value)),
-		)
-	 
-	if err != nil{
-		fmt.Println(err)
-		}
+	f, e := os.OpenFile(logPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	
+        if e != nil {
+                fmt.Println("fatal")
+        }
+	log.SetOutput(f)
+
+	if command.TxHash != "" {
+		self.latestHash = txHash
+	}
+
+	var (
+		logger = vm.NewStructLogger(nil)
+		sender = common.HexToAddress(command.Sender)
+		receiver = common.HexToAddress(command.Receiver)
+	)
+	self.statedb.StartRecord(txHash, common.HexToHash(command.BlockHash), 0)
+	self.statedb.AddBalance(sender, StringToBig(command.Fund))
+	runtimeConfig := runtime.Config{
+		Origin:   sender,
+		State:    self.statedb,
+		GasLimit: 10000000000,
+		GasPrice: big.NewInt(0),
+		Value:    StringToBig(command.Value),
+		Time: StringToBig(command.Time),
+		Difficulty: StringToBig(command.Difficulty),
+		Coinbase: common.HexToAddress(command.Coinbase),
+		BlockNumber: StringToBig(command.BlockNumber),
+		EVMConfig: vm.Config{
+			Tracer:             logger,
+			Debug:              false,
+			DisableGasMetering: true,
+		},
+	}
+	var ret []byte
+	var  err error
 
 	if command.Deploy{
-		receiver.SetCode(ret)
+		ret, _, err = runtime.Create(common.Hex2Bytes(command.Code), &runtimeConfig)
+		
+	} else{
+		if command.Code != "" && self.statedb.GetCode(receiver) == nil{
+			self.statedb.SetCode(receiver, common.Hex2Bytes(command.Code))
 		}
-	self.statedb.Commit()
+		ret, err = runtime.Call(receiver, common.Hex2Bytes(command.Input), &runtimeConfig)
+	}
+	
+	if err != nil{
+		fmt.Println(err)
+	}
+	record := self.statedb.JournalRecord()
+	for k, v := range record {
+		log.Println("JournalRecord", k.Hex(), v, self.statedb.GetBalance(*k))
+	}
+	self.statedb.Commit(false)
+	f.Close()
+	self.txTable[txHash] = true
 	self.mutex.Unlock()
 	return ret
 }
 
+//WriteStates open the statefile from command.Path and write it to Statedb
 func (t* VmDaemon) WriteStates(command WriteCommand, reply *string) error{
 	states, ok := StatePools[command.Multisig]
 	if !ok{
 	*reply = "No stateFile"
 		return errors.New("No stateFile")
 	}
+	f, err := ioutil.ReadFile(command.Path)
+	if err != nil {
+			return err
+	}
+	var dump state.Dump
+	json.Unmarshal(f,&dump)
 	states.mutex.Lock()
-	ReadStateDB(states.statedb, command.World)
-	states.statedb.Commit()
+	ReadStateDB(states.statedb, dump)
+	states.statedb.Commit(false)
 	states.mutex.Unlock()
 	return nil
 }
@@ -149,17 +183,19 @@ func (t* VmDaemon) DeployContract(command TaskCommand, result *string) error{
 	var states *StatePool
 	states, ok := StatePools[command.Multisig]
 	if !ok {
-		db, _ := ethdb.NewMemDatabase()
+		db, err := ethdb.NewLDBDatabase(DatabasePath + command.Multisig, 1024, 0)
+		if err != nil {
+			fmt.Println(err)
+		}
 		statedb, _ := state.New(common.Hash{}, db)
-		MyTime := common.Big(command.Time)
-		env := NewEnv(statedb, vm.Config{ Debug: true}, MyTime)
 		states = &StatePool{
-			vmenv: env,
 			statedb: statedb,
+			txTable: make(map[common.Hash]bool),
 			}
 		StatePools[command.Multisig] = states
 	}
-	if command.SyncCall {
+
+	if command.SyncCall{
 		states.mutex.Lock()
 		ret := states.ExecTask(command)
 		*result = fmt.Sprintf("%x", ret)
@@ -180,13 +216,22 @@ func (t* VmDaemon) WriteLog(command LogCommand, result *string) error{
 		if err != nil {
 			return err
 		}
-		states.statedb.Commit()
-		logs := states.statedb.GcoinGetLogs()
-		f.WriteString(logs)
+		states.statedb.Commit(false)
+		f.WriteString(GetLogs(states.statedb))
 	} else{
 		return errors.New("not found")
 	}
 	return nil
+}
+
+func (t* VmDaemon) GetLatestTx(Multisig string, result *string) error{
+	states, ok := StatePools[Multisig]
+	if ok{
+		*result = states.latestHash.Hex()
+	} else{
+		return errors.New("not found")
+	}
+	return nil	
 }
 
 func (t *VmDaemon) RemoveStates(Multisig string, result *string) error{
@@ -194,6 +239,7 @@ func (t *VmDaemon) RemoveStates(Multisig string, result *string) error{
 	if ok {
 		states.mutex.Lock()
 		delete(StatePools, Multisig)
+		os.RemoveAll(DatabasePath + Multisig)
 		states.mutex.Unlock()
 		*result = "remove " + Multisig
 		return nil
@@ -207,9 +253,9 @@ func (t *VmDaemon) IncNonce(command NonceCommand, result *string) error{
 	if ok {
 		receiveradr := common.HexToAddress(command.Receiver)
 		states.mutex.Lock()
-		account := states.statedb.GetStateObject(receiveradr)
+		account := states.statedb.GetOrNewStateObject(receiveradr)
 		account.SetNonce(account.Nonce() + 1)
-		states.statedb.Commit()
+		states.statedb.Commit(false)
 		states.mutex.Unlock()
 		*result = "increase nonce of " + command.Receiver
 	}else {
@@ -217,6 +263,21 @@ func (t *VmDaemon) IncNonce(command NonceCommand, result *string) error{
 	}
 	return nil
 }
+
+func (t *VmDaemon) CheckTx(request CheckTxCommand, result *string) error{
+	var states *StatePool
+	states, ok := StatePools[request.Multisig]
+	if !ok {
+		return nil
+	}
+	txHash := common.HexToHash(request.TxHash)
+	if states.txTable[txHash] {
+		*result = "true"
+	} else{
+		*result = "false"
+	}
+	return nil
+} 
 
 func (t *VmDaemon) QueryStates(request QueryRequest, result *string) error{
 	var states *StatePool
@@ -231,32 +292,31 @@ func (t *VmDaemon) QueryStates(request QueryRequest, result *string) error{
 }
 
 
-func ReadStateDB(statedb *state.StateDB,world state.World) {
+func ReadStateDB(statedb *state.StateDB,world state.Dump) {
 	for key, value := range world.Accounts{
 		address := common.HexToAddress(key)
-		if !statedb.HasAccount(address) {
-			statedb.CreateAccount(address)
-		}
+		statedb.SetCode(address, common.Hex2Bytes(value.Code))
+		statedb.SetBalance(address, StringToBig(value.Balance))
+		statedb.SetNonce(address, value.Nonce)
 		for storage_location, storage_value := range value.Storage{
 			statedb.SetState(address, common.HexToHash(storage_location), common.HexToHash(storage_value))
-			}
-		statedb.SetCode(address, common.Hex2Bytes(value.Code))
-		stateObject := statedb.GetOrNewStateObject(address)
-		for k,v := range value.Balance{
-			color,_ :=strconv.Atoi(k)
-			stateObject.SetBalance(uint(color), common.Big(v))
-			}
-		statedb.SetNonce(address, value.Nonce)
 		}
+	}
 }
 
 type NonceCommand struct{
 	Multisig string
 	Receiver string
 }
+
+type CheckTxCommand struct{
+	Multisig string
+	TxHash string
+}
+
 type WriteCommand struct{
 	Multisig string
-	World state.World
+	Path string
 }
 
 type QueryRequest struct{
@@ -270,8 +330,9 @@ type LogCommand struct{
 }
 
 type StatePool struct{
-	vmenv *VMEnv
 	statedb *state.StateDB
+	latestHash common.Hash
+	txTable map[common.Hash]bool
 	mutex sync.Mutex
 	busy bool
 }
@@ -285,101 +346,35 @@ type TaskCommand struct{
 	Fund string
 	Multisig string
 	Time string
+	TxHash string
+	BlockHash string
+	Coinbase string
+	BlockNumber string
+	Difficulty string
 	Deploy bool
 	SyncCall bool
 }
 
-type VMEnv struct {
-	state *state.StateDB
-	//block *types.Block
-
-	transactor *common.Address
-	value      *big.Int
-
-	depth int
-	Gas   *big.Int
-	time  *big.Int
-	logs  []vm.StructLog
-
-	evm *vm.EVM
+func StringToBig(s string) *big.Int{
+	b := big.NewInt(0)
+	b.SetString(s, 10)
+	return b
 }
 
-func NewEnv(state *state.StateDB, cfg vm.Config, myTime *big.Int) *VMEnv {
 
+func GetLogs(statedb *state.StateDB) string {
+	var logsStr string
+    logsStr += `{ "logs":[`
+	count := 0
 
-
-	env := &VMEnv{
-		state:      state,
-		time:       myTime,
+	for _, lg := range statedb.Logs() {
+        count += 1
+        if count != 1 {
+            logsStr += ", "
+        }
+		logsStr += lg.JsonString()
 		}
-	cfg.Logger.Collector = env
+    logsStr += "]}"
 
-	env.evm = vm.New(env, cfg)
-	return env
-}
-
-// ruleSet implements vm.RuleSet and will always default to the homestead rule set.
-//type ruleSet struct{}
-
-//func (ruleSet) IsHomestead(*big.Int) bool { return true }
-//set all IsHomestead to be true
-
-func (self *VMEnv) SetTime(time *big.Int) {
-	self.time = time
-}
-func (self *VMEnv) MarkCodeHash(common.Hash)   {}
-//func (self *VMEnv) RuleSet() vm.RuleSet        { return ruleSet{} }
-func (self *VMEnv) Vm() vm.Vm                  { return self.evm }
-func (self *VMEnv) Db() vm.Database            { return self.state }
-func (self *VMEnv) MakeSnapshot() vm.Database  { return self.state.Copy() }
-func (self *VMEnv) SetSnapshot(db vm.Database) { self.state.Set(db.(*state.StateDB)) }
-func (self *VMEnv) Origin() common.Address     { return *self.transactor }
-//func (self *VMEnv) BlockNumber() *big.Int      { return common.Big0 }
-//func (self *VMEnv) Coinbase() common.Address   { return *self.transactor }
-func (self *VMEnv) Time() *big.Int             { return self.time }
-//func (self *VMEnv) Difficulty() *big.Int       { return common.Big1 }
-//func (self *VMEnv) BlockHash() []byte          { return make([]byte, 32) }
-func (self *VMEnv) Value() *big.Int            { return self.value }
-func (self *VMEnv) GasLimit() *big.Int         { return big.NewInt(1000000000) }
-func (self *VMEnv) VmType() vm.Type            { return vm.StdVmTy }
-func (self *VMEnv) Depth() int                 { return 0 }
-func (self *VMEnv) SetDepth(i int)             { self.depth = i }
-
-func (self *VMEnv) AddStructLog(log vm.StructLog) {
-	self.logs = append(self.logs, log)
-}
-func (self *VMEnv) StructLogs() []vm.StructLog {
-	return self.logs
-}
-func (self *VMEnv) AddLog(log *vm.Log) {
-	self.state.AddLog(log)
-}
-func (self *VMEnv) CanTransfer(from common.Address, balance map[uint]*big.Int) bool {
-	for k,v := range balance{
-		if self.state.GetBalance(k,from).Cmp(v) < 0{
-			return false
-			}
-		}
-	return true
-	//return self.state.GetBalance(0,from).Cmp(balance) >= 0
-}
-func (self *VMEnv) Transfer(from vm.Account, to vm.Account, amount map[uint]*big.Int) {
-	core.Transfer(from, to, amount)
-}
-
-func (self *VMEnv) Call(caller vm.ContractRef, addr common.Address, data []byte, gas, price *big.Int, value map[uint]*big.Int) ([]byte, error) {
-	self.Gas = gas
-	return core.Call(self, caller, addr, data, gas, price, value)
-}
-
-func (self *VMEnv) CallCode(caller vm.ContractRef, addr common.Address, data []byte, gas, price *big.Int, value map[uint]*big.Int) ([]byte, error) {
-	return core.CallCode(self, caller, addr, data, gas, price, value)
-}
-
-func (self *VMEnv) DelegateCall(caller vm.ContractRef, addr common.Address, data []byte, gas, price *big.Int) ([]byte, error) {
-	return core.DelegateCall(self, caller, addr, data, gas, price)
-}
-
-func (self *VMEnv) Create(caller vm.ContractRef, data []byte, gas, price *big.Int, value map[uint]*big.Int) ([]byte, common.Address, error) {
-	return core.Create(self, caller, data, gas, price, value)
+	return logsStr
 }

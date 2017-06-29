@@ -19,12 +19,13 @@ package state
 import (
 	"encoding/json"
 	"fmt"
-	"strconv"
+
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/rlp"
 )
 
-type Account struct {
-	Balance  map[string]string            `json:"balance"`
+type DumpAccount struct {
+	Balance  string            `json:"balance"`
 	Nonce    uint64            `json:"nonce"`
 	Root     string            `json:"root"`
 	CodeHash string            `json:"codeHash"`
@@ -32,47 +33,42 @@ type Account struct {
 	Storage  map[string]string `json:"storage"`
 }
 
-type World struct {
-	Root     string             `json:"root"`
-	Accounts map[string]Account `json:"accounts"`
+type Dump struct {
+	Root     string                 `json:"root"`
+	Accounts map[string]DumpAccount `json:"accounts"`
 }
 
-func (self *StateDB) RawDump() World {
-	world := World{
+func (self *StateDB) RawDump() Dump {
+	dump := Dump{
 		Root:     common.Bytes2Hex(self.trie.Root()),
-		Accounts: make(map[string]Account),
+		Accounts: make(map[string]DumpAccount),
 	}
 
 	it := self.trie.Iterator()
 	for it.Next() {
 		addr := self.trie.GetKey(it.Key)
-		stateObject, err := DecodeObject(common.BytesToAddress(addr), self.db, it.Value)
-		if err != nil {
+		var data Account
+		if err := rlp.DecodeBytes(it.Value, &data); err != nil {
 			panic(err)
 		}
 
-		account := Account{
-			Balance: make(map[string]string),
-		//	Balance:  self.GetBalance(0,common.BytesToAddress(addr)).String(),
-			Nonce:    stateObject.nonce,
-			Root:     common.Bytes2Hex(stateObject.Root()),
-			CodeHash: common.Bytes2Hex(stateObject.codeHash),
-			Code:     common.Bytes2Hex(stateObject.Code()),
+		obj := newObject(nil, common.BytesToAddress(addr), data, nil)
+		account := DumpAccount{
+			Balance:  self.GetBalance(common.BytesToAddress(addr)).String(),
+			Nonce:    self.GetNonce(common.BytesToAddress(addr)), // it's a quick fix
+			Root:     common.Bytes2Hex(data.Root[:]),
+			CodeHash: common.Bytes2Hex(data.CodeHash),
+			Code:     common.Bytes2Hex(obj.Code(self.db)),
 			Storage:  make(map[string]string),
 		}
-		balancemap := self.GetBalanceMap(common.BytesToAddress(addr))
-		for k,v := range balancemap{
-			account.Balance[strconv.Itoa(int(k))]=v.String()
-		}
-		storageIt := stateObject.trie.Iterator()
+		storageIt := obj.getTrie(self.db).Iterator()
 		for storageIt.Next() {
+			// it's a quick fix
 			account.Storage[common.Bytes2Hex(self.trie.GetKey(storageIt.Key))] = common.Bytes2Hex(self.GetState(common.BytesToAddress(addr),common.BytesToHash(self.trie.GetKey(storageIt.Key))).Bytes())
-			// Jonah
-			//
 		}
-		world.Accounts[common.Bytes2Hex(addr)] = account
+		dump.Accounts[common.Bytes2Hex(addr)] = account
 	}
-	return world
+	return dump
 }
 
 func (self *StateDB) Dump() []byte {
@@ -82,13 +78,4 @@ func (self *StateDB) Dump() []byte {
 	}
 
 	return json
-}
-
-// Debug stuff
-func (self *StateObject) CreateOutputForDiff() {
-	fmt.Printf("%x %x %x %x\n", self.Address(), self.Root(), self.balance[0].Bytes(), self.nonce)
-	it := self.trie.Iterator()
-	for it.Next() {
-		fmt.Printf("%x %x\n", it.Key, it.Value)
-	}
 }

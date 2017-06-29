@@ -82,10 +82,6 @@ const (
 	GASPRICE
 	EXTCODESIZE
 	EXTCODECOPY
-
-	COLORBALANCE
-	CALLCVALUE
-	CHECKVALUE
 )
 
 const (
@@ -206,11 +202,7 @@ const (
 	RETURN
 	DELEGATECALL
 
-	CREATECOLOR
-	CALLCOLOR
-	CALLCCODE
-
-	SUICIDE = 0xff
+	SELFDESTRUCT = 0xff
 )
 
 // Since the opcodes aren't all in order we can't use a regular slice
@@ -256,14 +248,7 @@ var opCodeToString = map[OpCode]string{
 	CALLDATACOPY: "CALLDATACOPY",
 	CODESIZE:     "CODESIZE",
 	CODECOPY:     "CODECOPY",
-	GASPRICE:     "TXGASPRICE",
-	EXTCODESIZE: "EXTCODESIZE",
-	EXTCODECOPY: "EXTCODECOPY",
-
-	COLORBALANCE: "COLORBALANCE",
-	CALLCVALUE:   "CALLCVALUE",
-
-	CHECKVALUE:   "CHECKVALUE",
+	GASPRICE:     "GASPRICE",
 
 	// 0x40 range - block operations
 	BLOCKHASH:   "BLOCKHASH",
@@ -272,6 +257,8 @@ var opCodeToString = map[OpCode]string{
 	NUMBER:      "NUMBER",
 	DIFFICULTY:  "DIFFICULTY",
 	GASLIMIT:    "GASLIMIT",
+	EXTCODESIZE: "EXTCODESIZE",
+	EXTCODECOPY: "EXTCODECOPY",
 
 	// 0x50 range - 'storage' and execution
 	POP: "POP",
@@ -364,14 +351,11 @@ var opCodeToString = map[OpCode]string{
 
 	// 0xf0 range
 	CREATE:       "CREATE",
-	CREATECOLOR:  "CREATECOLOR",
 	CALL:         "CALL",
-	CALLCOLOR:    "CALLCOLOR",
 	RETURN:       "RETURN",
 	CALLCODE:     "CALLCODE",
-	CALLCCODE:    "CALLCCODE",
 	DELEGATECALL: "DELEGATECALL",
-	SUICIDE:      "SUICIDE",
+	SELFDESTRUCT: "SELFDESTRUCT",
 
 	PUSH: "PUSH",
 	DUP:  "DUP",
@@ -414,11 +398,9 @@ var stringToOp = map[string]OpCode{
 	"SHA3":         SHA3,
 	"ADDRESS":      ADDRESS,
 	"BALANCE":      BALANCE,
-	"COLORBALANCE": COLORBALANCE,
 	"ORIGIN":       ORIGIN,
 	"CALLER":       CALLER,
 	"CALLVALUE":    CALLVALUE,
-	"CALLCVALUE":   CALLCVALUE,
 	"CALLDATALOAD": CALLDATALOAD,
 	"CALLDATASIZE": CALLDATASIZE,
 	"CALLDATACOPY": CALLDATACOPY,
@@ -516,13 +498,10 @@ var stringToOp = map[string]OpCode{
 	"LOG3":         LOG3,
 	"LOG4":         LOG4,
 	"CREATE":       CREATE,
-	"CREATECOLOR":  CREATECOLOR,
 	"CALL":         CALL,
-	"CALLCOLOR":    CALLCOLOR,
 	"RETURN":       RETURN,
 	"CALLCODE":     CALLCODE,
-	"CALLCCODE":    CALLCCODE,
-	"SUICIDE":      SUICIDE,
+	"SELFDESTRUCT": SELFDESTRUCT,
 }
 
 func StringToOp(str string) OpCode {
